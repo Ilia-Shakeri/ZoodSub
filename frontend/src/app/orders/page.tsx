@@ -1,105 +1,192 @@
 "use client";
 
-import { Clock } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { fetchUserOrders } from "@/services/api";
+import { Order } from "@/types/api";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose
-} from "@/components/ui/dialog";
+  ChevronLeft, Clock, CheckCircle2, XCircle,
+  RefreshCw, Loader2, ShoppingBag, Copy, ChevronDown, ChevronUp,
+} from "lucide-react";
 
-// Mock database layer for current client-side rendering evaluation
-const MOCK_ORDERS = [
-  { id: "ORD-981X", title: "اسپاتیفای پرمیوم ۱ ماهه", date: "۱۴۰۳/۰۳/۱۱", status: "فعال", price: "۱۶۰,۰۰۰", method: "روی اکانت شخصی", email: "ilia@example.com" },
-  { id: "ORD-982X", title: "نتفلیکس پرمیوم ۳ ماهه", date: "۱۴۰۳/۰۲/۱۵", status: "پایان یافته", price: "۷۰۰,۰۰۰", method: "اکانت آماده", email: "-" },
-  { id: "ORD-983X", title: "تلگرام پرمیوم ۶ ماهه", date: "۱۴۰۲/۱۱/۲۰", status: "پایان یافته", price: "۱,۶۰۰,۰۰۰", method: "ارسال گیفت", email: "@ilia_devops" }
-];
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  PENDING: { label: "در انتظار پرداخت", color: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30", icon: <Clock className="w-3 h-3" /> },
+  PAID: { label: "پرداخت شده", color: "text-blue-400 bg-blue-400/10 border-blue-400/30", icon: <CheckCircle2 className="w-3 h-3" /> },
+  PROCESSING: { label: "در حال پردازش", color: "text-purple-400 bg-purple-400/10 border-purple-400/30", icon: <RefreshCw className="w-3 h-3" /> },
+  DELIVERED: { label: "تحویل داده شده", color: "text-green-400 bg-green-400/10 border-green-400/30", icon: <CheckCircle2 className="w-3 h-3" /> },
+  CANCELLED: { label: "لغو شده", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <XCircle className="w-3 h-3" /> },
+  REFUNDED: { label: "برگشت وجه", color: "text-orange-400 bg-orange-400/10 border-orange-400/30", icon: <RefreshCw className="w-3 h-3" /> },
+};
+
+const DELIVERY_LABELS: Record<string, string> = {
+  "Telegram Message": "پیام تلگرام",
+  "Email": "ایمیل",
+  "WhatsApp": "واتس‌اپ",
+  "Manual Support": "پشتیبانی دستی",
+};
+
+function OrderCard({ order }: { order: Order }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const status = STATUS_CONFIG[order.status] || { label: order.status, color: "text-slate-400 bg-slate-400/10 border-slate-400/30", icon: null };
+
+  const copyOrderNumber = () => {
+    navigator.clipboard.writeText(order.orderNumber);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const createdAt = new Date(order.createdAt).toLocaleDateString("fa-IR", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden transition-all">
+      {/* Card header */}
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 ${status.color}`}>
+            {status.icon}
+            {status.label}
+          </span>
+          <span className="text-[10px] text-slate-500 flex items-center gap-1">
+            <Clock className="w-3 h-3" /> {createdAt}
+          </span>
+        </div>
+
+        <div className="flex items-start justify-between gap-2">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-slate-400 hover:text-white transition-colors mt-1"
+          >
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          <div className="text-right flex-1">
+            <p className="text-xs text-slate-400 mb-1">
+              {order.items.length} محصول • روش تحویل: {DELIVERY_LABELS[order.deliveryMethod] || order.deliveryMethod}
+            </p>
+            <button
+              onClick={copyOrderNumber}
+              className="font-mono text-sm text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1.5 mr-auto"
+            >
+              {copied ? "کپی شد ✓" : order.orderNumber}
+              {!copied && <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-700/60">
+          <span className="text-base font-bold text-white">
+            {order.totalPrice.toLocaleString("fa-IR")}
+            <span className="text-xs font-normal text-slate-400 mr-1">تومان</span>
+          </span>
+          <span className="text-xs text-slate-400">مبلغ کل</span>
+        </div>
+      </div>
+
+      {/* Expanded order items */}
+      {expanded && (
+        <div className="border-t border-slate-700/60 bg-slate-900/40 p-4 space-y-2">
+          {order.items.map((item) => (
+            <div key={item.id} className="flex justify-between items-center text-sm">
+              <span className="text-cyan-400 font-bold shrink-0">
+                {item.total.toLocaleString("fa-IR")} ت
+              </span>
+              <span className="text-slate-300 text-right text-xs">
+                {item.title} — {item.variantName} × {item.quantity}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OrdersPage() {
   const router = useRouter();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+      const tg = window.Telegram.WebApp;
+      tg.BackButton.show();
+      tg.BackButton.onClick(() => router.back());
+      return () => tg.BackButton.hide();
+    }
+  }, [router]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("zoodsub_token") : null;
+      if (!token) {
+        if (!cancelled) {
+          setError("برای مشاهده سفارشات ابتدا وارد شوید.");
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const data = await fetchUserOrders();
+        if (!cancelled) setOrders(data);
+      } catch {
+        if (!cancelled) setError("خطا در دریافت سفارشات");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-100 font-sans pb-32 relative">
-      
-      {/* Consistent Sticky Header */}
-      <header className="flex justify-between items-center p-4 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40 border-b border-slate-800/50 mb-6 max-w-lg mx-auto">
-        <h1 className="text-xl font-bold text-cyan-400">سفارشات من</h1>
-        <button onClick={() => router.back()} className="text-slate-400 hover:text-white transition-colors bg-slate-800/50 px-4 py-1.5 rounded-xl text-sm font-medium">
-          بازگشت
-        </button>
+    <div className="min-h-screen bg-[#0f172a] text-slate-100 pb-36">
+      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/60">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-bold text-white">سفارشات من</h1>
+          <button
+            onClick={() => router.back()}
+            className="text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            بازگشت
+          </button>
+        </div>
       </header>
 
-      <main className="flex flex-col gap-4 w-full px-4 max-w-lg mx-auto">
-        {MOCK_ORDERS.map((order) => (
-          <Dialog key={order.id}>
-            <div className="bg-slate-800/60 backdrop-blur-sm rounded-3xl p-5 border border-slate-700 flex flex-col gap-3 shadow-md hover:border-cyan-500/30 transition-colors">
-              <div className="flex justify-between items-center border-b border-slate-700/50 pb-3">
-                <span className={`text-xs px-3 py-1 rounded-full font-medium ${order.status === 'فعال' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-700/50 text-slate-400 border border-slate-600/50'}`}>
-                  {order.status}
-                </span>
-                <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {order.date}</span>
-              </div>
-              <div className="flex justify-between items-center mt-2">
-                <div className="text-right">
-                  <h4 className="font-bold text-sm text-white mb-1">{order.title}</h4>
-                  <p className="text-[10px] text-slate-400 font-mono">کد سفارش: {order.id}</p>
-                </div>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 shrink-0 ml-2 rounded-xl">مشاهده</Button>
-                </DialogTrigger>
-              </div>
-            </div>
-
-            {/* Dynamic Modal populated securely with state context */}
-            <DialogContent className="bg-slate-900 border border-slate-700 text-white rounded-3xl w-[90%] max-w-md mx-auto">
-              <DialogHeader className="border-b border-slate-800 pb-4 mb-2">
-                <DialogTitle className="text-right text-lg font-bold text-cyan-400">
-                  جزئیات سفارش
-                </DialogTitle>
-              </DialogHeader>
-              
-              <div className="flex flex-col gap-4 text-sm mt-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">محصول:</span>
-                  <span className="font-bold text-white">{order.title}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">کد سفارش:</span>
-                  <span className="font-mono text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-md">{order.id}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">تاریخ ثبت:</span>
-                  <span>{order.date}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">وضعیت:</span>
-                  <span className={order.status === 'فعال' ? 'text-green-400 font-bold' : 'text-slate-500'}>{order.status}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">نوع فعالسازی:</span>
-                  <span>{order.method}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">ایمیل / آیدی:</span>
-                  <span className="font-mono text-left dir-ltr">{order.email}</span>
-                </div>
-                
-                {/* Visual grouping identical to the transaction payload interface */}
-                <div className="mt-2 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex justify-between items-center">
-                  <span className="font-bold text-slate-300">مبلغ پرداخت شده:</span>
-                  <span className="text-cyan-400 font-bold text-lg dir-ltr">{order.price} <span className="text-sm font-normal text-slate-400">تومان</span></span>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <DialogClose asChild>
-                  <Button className="w-full bg-slate-800 hover:bg-slate-700 text-white py-6 rounded-xl border border-slate-600 transition-colors">
-                    بستن
-                  </Button>
-                </DialogClose>
-              </div>
-            </DialogContent>
-          </Dialog>
-        ))}
+      <main className="max-w-lg mx-auto px-4 py-4 space-y-3">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-4 rounded-2xl text-sm text-center">
+            {error}
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-4">
+            <ShoppingBag className="w-14 h-14 opacity-20" />
+            <p className="text-sm">هنوز سفارشی ثبت نکرده‌اید</p>
+            <button
+              onClick={() => router.push("/")}
+              className="text-cyan-400 text-xs hover:underline"
+            >
+              مشاهده محصولات
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-slate-500 text-right">{orders.length} سفارش</p>
+            {orders.map((order) => (
+              <OrderCard key={order.id} order={order} />
+            ))}
+          </>
+        )}
       </main>
     </div>
   );

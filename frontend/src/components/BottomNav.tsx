@@ -7,6 +7,11 @@ import Link from "next/link";
 export default function BottomNav() {
   const pathname = usePathname();
 
+  // Hide nav on admin panel and checkout/success pages
+  if (pathname.startsWith("/admin") || pathname.startsWith("/order/success") || pathname.startsWith("/checkout")) {
+    return null;
+  }
+
   // Navigation configuration array - Order matters for RTL
   // RTL render order from right to left: Profile -> Orders -> Home -> Products -> Support
   const navItems = [

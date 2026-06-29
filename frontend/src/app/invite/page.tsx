@@ -12,12 +12,14 @@ export default function InvitePage() {
 
   useEffect(() => {
     // Dynamically retrieve Telegram execution contexts to identify specific users
-    if (typeof window !== "undefined") {
+    const applyReferralLink = () => {
+      if (typeof window === "undefined") return;
       const telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
       if (telegramUserId) {
         setInviteLink(`https://t.me/ZoodSubBot?start=ref_${telegramUserId}`);
       }
-    }
+    };
+    applyReferralLink();
   }, []);
 
   // Safe programmatic interaction layer with device string clipboards
